@@ -17,6 +17,10 @@ namespace RestfulWebAPI.Api.Profiles
 
             //从CompanyAddDto映射到Company
             CreateMap<CompanyAddDto, Company>();
+
+            CreateMap<Company, CompanyFullDto>();
+
+            CreateMap<CompanyAddWithBankruptTimeDto, Company>();
         }
     }
 }

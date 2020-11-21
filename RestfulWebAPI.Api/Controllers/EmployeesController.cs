@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using AutoMapper;
+using Marvin.Cache.Headers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.JsonPatch;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using RestfulWebAPI.Api.DtoParameters;
 using RestfulWebAPI.Api.Entities;
 using RestfulWebAPI.Api.Models;
 using RestfulWebAPI.Api.Services;
@@ -17,6 +19,8 @@ namespace RestfulWebAPI.Api.Controllers
 {
     [ApiController]
     [Route("api/companies/{companyId}/employees")]
+    //[ResponseCache(CacheProfileName = "120sCacheProfile")] 已使用强验证器
+    [HttpCacheExpiration(CacheLocation = CacheLocation.Public, MaxAge = 120)]
     public class EmployeesController : ControllerBase
     {
         private readonly ICompanyRepository _companyRepository;
@@ -28,17 +32,17 @@ namespace RestfulWebAPI.Api.Controllers
             this._mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
         }
 
-        [HttpGet]
+        [HttpGet(Name = nameof(GetEmployeesByCompanyId))]
         public async Task<ActionResult<IEnumerable<EmployeeDto>>>
-            GetEmployeesByCompanyId(Guid companyId, [FromQuery(Name = "gender")] string genderDisplay,
-                [FromQuery] string q) //过滤和搜索
+            GetEmployeesByCompanyId(Guid companyId, [FromQuery]EmployeeDtoParameters parameters) //过滤和搜索
         {
             if (!await _companyRepository.CompanyExistsAsync(companyId))
             {
                 return NotFound();
             }
 
-            var employees = await _companyRepository.GetEmployeesAsync(companyId, genderDisplay, q);
+            var employees =
+                await _companyRepository.GetEmployeesAsync(companyId, parameters);
 
             var employeeDtos = _mapper.Map<IEnumerable<EmployeeDto>>(employees);
 
@@ -47,6 +51,9 @@ namespace RestfulWebAPI.Api.Controllers
         }
 
         [HttpGet("{employleeId}", Name = nameof(GetEmployee))]
+        //[ResponseCache(Duration = 60)]//设置缓存机制 并且缓存时间设置为120秒
+        [HttpCacheExpiration(CacheLocation = CacheLocation.Public,MaxAge = 120)]
+        [HttpCacheValidation(MustRevalidate = false)]
         public async Task<ActionResult<IEnumerable<EmployeeDto>>> GetEmployee(Guid companyId, Guid employleeId)
         {
             if (!await _companyRepository.CompanyExistsAsync(companyId))
@@ -65,7 +72,7 @@ namespace RestfulWebAPI.Api.Controllers
             return Ok(employeeDto);
         }
 
-        [HttpPost]
+        [HttpPost(Name = nameof(AddEmployee))]
         public async Task<ActionResult<EmployeeDto>> AddEmployee(Guid companyId, EmployeeAddDto employee)
         {
             if (!await _companyRepository.CompanyExistsAsync(companyId))
@@ -170,6 +177,7 @@ namespace RestfulWebAPI.Api.Controllers
             //]
         }
 
+        //重写的自定义验证方法
         public override ActionResult ValidationProblem(ModelStateDictionary modelStateDictionary)
         {
             //取得startup里的服务
@@ -186,7 +194,7 @@ namespace RestfulWebAPI.Api.Controllers
             }
 
             var employeeEntity = await _companyRepository.GetEmployeeAsync(companyId, employeeId);
-            if (employeeEntity==null)
+            if (employeeEntity == null)
             {
                 return NotFound();
             }

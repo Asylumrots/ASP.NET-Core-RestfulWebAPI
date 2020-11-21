@@ -6,16 +6,20 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using RestfulWebAPI.Api.Helpers;
+using RestfulWebAPI.Api.Models;
 
 namespace RestfulWebAPI.Api.Services
 {
     public class CompanyRepository : ICompanyRepository
     {
         private readonly MyDbContext _context;
+        private readonly IPropertyMappingService _propertyMappingService;
 
-        public CompanyRepository(MyDbContext context)
+        public CompanyRepository(MyDbContext context,IPropertyMappingService propertyMappingService)
         {
             this._context = context ?? throw new ArgumentNullException(nameof(context));//判断是否为空，为空则抛出异常
+            _propertyMappingService = propertyMappingService ?? throw new ArgumentNullException(nameof(propertyMappingService));
         }
 
         public async Task<Company> GetCompanyAsync(Guid companyId)
@@ -42,7 +46,7 @@ namespace RestfulWebAPI.Api.Services
                 .ToListAsync();
         }
 
-        public async Task<IEnumerable<Company>> GetCompaniesAsync(CompanyDtoParameters parameters)//自己重载的参数的方法
+        public async Task<PagedList<Company>> GetCompaniesAsync(CompanyDtoParameters parameters)//自己重载的参数的方法
         {
             //判断是否为空
             if (parameters == null)
@@ -51,10 +55,10 @@ namespace RestfulWebAPI.Api.Services
             }
 
             //都为空返回全部结果
-            if (string.IsNullOrEmpty(parameters.CompanyName) && string.IsNullOrEmpty(parameters.QueryString))
-            {
-                return await _context.Companies.ToListAsync();
-            }
+            //if (string.IsNullOrEmpty(parameters.CompanyName) && string.IsNullOrEmpty(parameters.QueryString))
+            //{
+            //    return await _context.Companies.ToListAsync();
+            //}
 
             var queryExpression = _context.Companies as IQueryable<Company>;
 
@@ -72,8 +76,15 @@ namespace RestfulWebAPI.Api.Services
                     .Where(x => x.Name.Contains(parameters.QueryString) || x.Introduction.Contains(parameters.QueryString));
             }
 
+            var mappingDictionary = _propertyMappingService.GetPropertyMapping<CompanyDto, Company>();
+
+            queryExpression = queryExpression.ApplySort(parameters.OrderBy, mappingDictionary);
+            //分页
+            //queryExpression = queryExpression.Skip((parameters.PageNumber - 1) * parameters.PageSize)
+            //    .Take(parameters.PageSize); 
+
             //执行ToListAsync时自动查询数据库并返回结果
-            return await queryExpression.ToListAsync();
+            return await PagedList<Company>.CreateAsync(queryExpression, parameters.PageNumber, parameters.PageSize);
         }
 
         public void AddCompany(Company company)
@@ -121,42 +132,44 @@ namespace RestfulWebAPI.Api.Services
             return await _context.Companies.AnyAsync(x => x.Id == companyId);
         }
 
-        public async Task<IEnumerable<Employee>> GetEmployeesAsync(Guid companyId, string genderDisplay, string q)
+        public async Task<IEnumerable<Employee>> GetEmployeesAsync(Guid companyId, EmployeeDtoParameters parameters)
         {
             if (companyId == Guid.Empty)
             {
                 throw new ArgumentNullException(nameof(companyId));
             }
 
-            //过滤和搜索都为空
-            if (string.IsNullOrWhiteSpace(genderDisplay) && string.IsNullOrWhiteSpace(q))
-            {
-                return await _context.Employees
-                .Where(x => x.CompanyId == companyId)
-                .OrderBy(x => x.EmployeeNo)
-                .ToListAsync();
-            }
-
             var items = _context.Employees.Where(x => x.CompanyId == companyId);
 
             //过滤
-            if (!string.IsNullOrWhiteSpace(genderDisplay))
+            if (!string.IsNullOrWhiteSpace(parameters.Gender))
             {
-                genderDisplay = genderDisplay.Trim();
-                var gender = Enum.Parse<Gender>(genderDisplay);
+                parameters.Gender = parameters.Gender.Trim();
+                var gender = Enum.Parse<Gender>(parameters.Gender);
                 items = items.Where(x => x.Gender == gender);
             }
 
             //搜索
-            if (!string.IsNullOrWhiteSpace(q))
+            if (!string.IsNullOrWhiteSpace(parameters.Q))
             {
-                q = q.Trim();
+                var q = parameters.Q.Trim();
                 items = items.Where(x => x.FirstName.Contains(q) || x.LastName.Contains(q) || x.EmployeeNo.Contains(q));
             }
 
-            return await items
-                .OrderBy(x => x.EmployeeNo)
-                .ToListAsync();
+            //if (!string.IsNullOrWhiteSpace(parameters.OrderBy))
+            //{
+            //    if (parameters.OrderBy.ToLowerInvariant() == "name")
+            //    {
+            //        items = items.OrderBy(x => x.FirstName).ThenBy(x => x.LastName);
+            //    }
+            //}
+
+            //获取属性的映射关系
+            var mappingDictionary = _propertyMappingService.GetPropertyMapping<EmployeeDto, Employee>();
+
+            items = items.ApplySort(parameters.OrderBy, mappingDictionary);
+
+            return await items.ToListAsync();
         }
 
         public async Task<Employee> GetEmployeeAsync(Guid companyId, Guid employeeId)
